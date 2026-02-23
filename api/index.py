@@ -7,7 +7,14 @@ Loads the LightGBM model once at module level; warm instances reuse it.
 
 import os
 import math
+import ctypes
 from typing import Any
+
+# Preload libgomp for Vercel/Lambda (bundled during build)
+_lib_dir = os.path.dirname(__file__)
+_gomp_path = os.path.join(_lib_dir, "libgomp.so.1")
+if os.path.exists(_gomp_path):
+    ctypes.cdll.LoadLibrary(_gomp_path)
 
 import numpy as np
 import lightgbm as lgb
