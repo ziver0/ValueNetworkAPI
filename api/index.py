@@ -2,7 +2,7 @@
 Value Network API — LightGBM win-probability prediction server
 
 Vercel Serverless Function (Python runtime).
-Loads the LightGBM model once at module level; warm instances reuse it.
+Loads LightGBM models on demand; warm instances reuse cached models.
 """
 
 import os
@@ -18,22 +18,38 @@ if os.path.exists(_gomp_path):
 
 import numpy as np
 import lightgbm as lgb
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-# ── Model loading (module-level, cached across warm invocations) ──
+# ── Model loading (cached across warm invocations) ──
 
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "model", "value_model.txt")
+MODEL_DIR = os.path.join(os.path.dirname(__file__), "..", "model")
 
-_booster: lgb.Booster | None = None
-_load_error: str | None = None
+_models: dict[str, lgb.Booster] = {}
+_load_errors: dict[str, str] = {}
 
-try:
-    _booster = lgb.Booster(model_file=MODEL_PATH)
-except Exception as e:
-    _load_error = str(e)
+
+def _load_model(composition: str) -> lgb.Booster | None:
+    """Load and cache a model for the given composition."""
+    if composition in _models:
+        return _models[composition]
+    if composition in _load_errors:
+        return None
+
+    path = os.path.join(MODEL_DIR, f"value_model_{composition}.txt")
+    try:
+        booster = lgb.Booster(model_file=path)
+        _models[composition] = booster
+        return booster
+    except Exception as e:
+        _load_errors[composition] = str(e)
+        return None
+
+
+# Pre-load default model at module level
+_load_model("12B")
 
 # ── Encoding maps (must match engine.py alphabetical order) ──
 
@@ -92,7 +108,7 @@ def encode_snapshot(snap: dict[str, Any]) -> np.ndarray:
 
 # ── FastAPI app ──
 
-app = FastAPI(title="Value Network API", version="1.0.0")
+app = FastAPI(title="Value Network API", version="1.1.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -104,6 +120,7 @@ app.add_middleware(
 
 class PredictRequest(BaseModel):
     snapshots: list[dict[str, Any]]
+    composition: str = "12B"
 
 
 def _sanitize_float(v: float) -> float | None:
@@ -114,20 +131,28 @@ def _sanitize_float(v: float) -> float | None:
 
 
 @app.get("/health")
-def health():
+def health(composition: str = Query(default="12B")):
+    booster = _load_model(composition)
+    error = _load_errors.get(composition)
     return {
-        "status": "ok" if _booster is not None else "error",
-        "model_loaded": _booster is not None,
-        "error": _load_error,
+        "status": "ok" if booster is not None else "error",
+        "model_loaded": booster is not None,
+        "composition": composition,
+        "error": error,
     }
 
 
 @app.post("/predict")
 def predict(req: PredictRequest):
-    if _booster is None:
+    booster = _load_model(req.composition)
+    if booster is None:
+        error = _load_errors.get(req.composition)
         return JSONResponse(
             status_code=503,
-            content={"error": "Model not loaded", "detail": _load_error},
+            content={
+                "error": f"Model not loaded for composition '{req.composition}'",
+                "detail": error,
+            },
         )
 
     if not req.snapshots:
@@ -135,7 +160,7 @@ def predict(req: PredictRequest):
 
     try:
         features = np.stack([encode_snapshot(s) for s in req.snapshots])
-        raw_preds = _booster.predict(features)
+        raw_preds = booster.predict(features)
 
         # LightGBM binary classifier returns P(village_win)
         probs = [_sanitize_float(float(p)) for p in raw_preds]
