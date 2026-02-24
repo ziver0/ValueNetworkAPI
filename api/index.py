@@ -60,11 +60,11 @@ ROLE_MAP = {
 CO_MAP = {"GUARD": 0, "MEDIUM": 1, "NONE": 2, "SEER": 3}
 ALIVE_MAP = {"ALIVE": 0, "ATTACKED": 1, "CURSED": 2, "EXECUTED": 3}
 
-SNAPSHOT_N_FEATURES = 12 * 16 + 10  # 202
+SNAPSHOT_N_FEATURES = 12 * 16 + 10 + 8  # 210
 
 
 def encode_snapshot(snap: dict[str, Any]) -> np.ndarray:
-    """Convert a SimSnapshot dict (202 string/number fields) to float32 array."""
+    """Convert a SimSnapshot dict (210 string/number fields) to float32 array."""
     out = np.empty(SNAPSHOT_N_FEATURES, dtype=np.float32)
 
     for i in range(12):
@@ -102,6 +102,17 @@ def encode_snapshot(snap: dict[str, Any]) -> np.ndarray:
             out[base + d] = np.nan
         else:
             out[base + d] = val
+
+    # Aggregate features (8)
+    agg_base = base + 10
+    out[agg_base] = snap.get("agg_seer_co", 0) or 0
+    out[agg_base + 1] = snap.get("agg_medium_co", 0) or 0
+    out[agg_base + 2] = snap.get("agg_none_count", 0) or 0
+    out[agg_base + 3] = snap.get("agg_none_alive", 0) or 0
+    out[agg_base + 4] = snap.get("agg_none_black", 0) or 0
+    out[agg_base + 5] = snap.get("agg_none_white", 0) or 0
+    out[agg_base + 6] = snap.get("agg_none_grey", 0) or 0
+    out[agg_base + 7] = snap.get("agg_alive_total", 0) or 0
 
     return out
 
@@ -162,8 +173,8 @@ def predict(req: PredictRequest):
         features = np.stack([encode_snapshot(s) for s in req.snapshots])
         raw_preds = booster.predict(features)
 
-        # LightGBM binary classifier returns P(village_win)
-        probs = [_sanitize_float(float(p)) for p in raw_preds]
+        # LightGBM multiclass returns (N, 4) softmax: [P(village), P(wolf), P(fox), P(draw)]
+        probs = [[_sanitize_float(float(v)) for v in row] for row in raw_preds]
         return {"probabilities": probs}
     except Exception as e:
         return JSONResponse(
