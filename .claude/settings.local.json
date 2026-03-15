@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c:*)",
+      "Bash(python3:*)",
+      "Bash(py:*)",
+      "Bash(where:*)",
+      "Bash(cmd //c \"where python\")",
+      "Bash(cmd //c \"python -c \"\"import ast; ast.parse\\(open\\(r''D:\\\\WorkSpace\\\\WebApplications\\\\WerewolfSimulator\\\\engine.py''\\).read\\(\\)\\); print\\(''OK''\\)\"\"\")",
+      "Bash(\"D:/WorkSpace/WebApplications/WerewolfSimulator/.venv/Scripts/python.exe\":*)",
+      "Bash(\"D:/WorkSpace/WebApplications/WerewolfSimulator/.venv/Scripts/python.exe\" -c \"import ast; ast.parse\\(open\\(''D:/WorkSpace/WebApplications/WerewolfSimulator/train.py'', encoding=''utf-8''\\).read\\(\\)\\); print\\(''OK''\\)\")",
+      "Bash(\"D:/WorkSpace/WebApplications/WerewolfSimulator/.venv/Scripts/python.exe\" -c \"import ast; ast.parse\\(open\\(''D:/WorkSpace/WebApplications/WerewolfSimulator/engine.py''\\).read\\(\\)\\); print\\(''OK''\\)\")",
+      "mcp__plugin_claude-mem_mcp-search__save_memory",
+      "Bash(cd:*)",
+      "Bash(.venv/Scripts/python.exe:*)",
+      "Bash(D:/WorkSpace/WebApplications/WerewolfSimulator/.venv/Scripts/pip.exe install:*)",
+      "Bash(\"D:\\\\WorkSpace\\\\WebApplications\\\\WerewolfSimulator\\\\.venv\\\\Scripts\\\\pip.exe\" install pyarrow)",
+      "Bash(ls:*)",
+      "mcp__plugin_claude-mem_mcp-search__search",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(npm run dev:*)"
+    ]
+  }
+}

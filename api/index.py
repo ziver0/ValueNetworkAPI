@@ -60,15 +60,37 @@ ROLE_MAP = {
 CO_MAP = {"GUARD": 0, "MEDIUM": 1, "NONE": 2, "SEER": 3}
 ALIVE_MAP = {"ALIVE": 0, "ATTACKED": 1, "CURSED": 2, "EXECUTED": 3}
 
-SNAPSHOT_N_FEATURES = 12 * 16 + 10 + 8  # 210
+# 特徴量数: 11 players × (5 base + 10 rf) + dead×6 + agg×8 + game_day + vote×33
+# = 11 × 15 + 6 + 8 + 1 + 33 = 213  (engine.py take_snapshot_numpy 準拠)
+SNAPSHOT_N_FEATURES = 11 * 15 + 6 + 8 + 1 + 33  # = 213
+
+
+def _safe_num(val: Any, default: float = 0) -> float:
+    """Safely convert a value to float, treating None as default."""
+    if val is None:
+        return default
+    try:
+        f = float(val)
+        return f if not math.isnan(f) else default
+    except (TypeError, ValueError):
+        return default
 
 
 def encode_snapshot(snap: dict[str, Any]) -> np.ndarray:
-    """Convert a SimSnapshot dict (210 string/number fields) to float32 array."""
-    out = np.empty(SNAPSHOT_N_FEATURES, dtype=np.float32)
+    """Convert a SimSnapshot dict (213 features) to float32 array.
 
-    for i in range(12):
-        idx = i * 16
+    Layout (matches engine.py take_snapshot_numpy):
+      [0-164]   11 players × 15 per-player (role,co,co_num,alive,death_day,rf_0..rf_9)
+      [165-170]  dead_1..dead_6
+      [171-178]  8 aggregate features
+      [179]      game_day_feat
+      [180-212]  33 vote target features (11 players × 3 free vote days)
+    """
+    out = np.empty(SNAPSHOT_N_FEATURES, dtype=np.float32)
+    idx = 0
+
+    # Per-player features: 11 players (p0=self, p1..p10=others, NPC excluded)
+    for i in range(11):
         prefix = f"p{i}_"
 
         # role (string -> int)
@@ -80,46 +102,54 @@ def encode_snapshot(snap: dict[str, Any]) -> np.ndarray:
         out[idx + 1] = CO_MAP.get(co_str, CO_MAP["NONE"])
 
         # co_num (number)
-        out[idx + 2] = snap.get(f"{prefix}co_num", 0) or 0
+        out[idx + 2] = _safe_num(snap.get(f"{prefix}co_num"))
 
         # alive (string -> int)
         alive_str = snap.get(f"{prefix}alive", "ALIVE")
         out[idx + 3] = ALIVE_MAP.get(alive_str, 0)
 
         # death_day (number | null -> 0 if null)
-        dd = snap.get(f"{prefix}death_day")
-        out[idx + 4] = dd if dd is not None else 0
+        out[idx + 4] = _safe_num(snap.get(f"{prefix}death_day"))
 
-        # rf_0 .. rf_10 (11 result features)
-        for j in range(11):
-            out[idx + 5 + j] = snap.get(f"{prefix}rf_{j}", 0) or 0
+        # rf_0 .. rf_9 (10 result features — other sorted players)
+        for j in range(10):
+            out[idx + 5 + j] = _safe_num(snap.get(f"{prefix}rf_{j}"))
 
-    # Global: dead_1 .. dead_10
-    base = 12 * 16
-    for d in range(10):
-        val = snap.get(f"dead_{d + 1}")
-        if val is None:
-            out[base + d] = np.nan
-        else:
-            out[base + d] = val
+        idx += 15  # 5 base + 10 rf
+
+    # Global: dead_1 .. dead_6
+    for d in range(1, 7):
+        val = snap.get(f"dead_{d}")
+        out[idx] = float(val) if val is not None else np.nan
+        idx += 1
 
     # Aggregate features (8)
-    agg_base = base + 10
-    out[agg_base] = snap.get("agg_seer_co", 0) or 0
-    out[agg_base + 1] = snap.get("agg_medium_co", 0) or 0
-    out[agg_base + 2] = snap.get("agg_none_count", 0) or 0
-    out[agg_base + 3] = snap.get("agg_none_alive", 0) or 0
-    out[agg_base + 4] = snap.get("agg_none_black", 0) or 0
-    out[agg_base + 5] = snap.get("agg_none_white", 0) or 0
-    out[agg_base + 6] = snap.get("agg_none_grey", 0) or 0
-    out[agg_base + 7] = snap.get("agg_alive_total", 0) or 0
+    out[idx] = _safe_num(snap.get("agg_seer_co"))
+    out[idx + 1] = _safe_num(snap.get("agg_medium_co"))
+    out[idx + 2] = _safe_num(snap.get("agg_none_count"))
+    out[idx + 3] = _safe_num(snap.get("agg_none_alive"))
+    out[idx + 4] = _safe_num(snap.get("agg_none_black"))
+    out[idx + 5] = _safe_num(snap.get("agg_none_white"))
+    out[idx + 6] = _safe_num(snap.get("agg_none_grey"))
+    out[idx + 7] = _safe_num(snap.get("agg_alive_total"))
+    idx += 8
+
+    # game_day
+    out[idx] = _safe_num(snap.get("game_day_feat"))
+    idx += 1
+
+    # Vote target features: vote_0 .. vote_32 (11 players × 3 free vote days)
+    for v in range(33):
+        val = snap.get(f"vote_{v}")
+        out[idx] = float(val) if val is not None else np.nan
+        idx += 1
 
     return out
 
 
 # ── FastAPI app ──
 
-app = FastAPI(title="Value Network API", version="1.1.0")
+app = FastAPI(title="Value Network API", version="1.2.0")
 
 app.add_middleware(
     CORSMiddleware,
