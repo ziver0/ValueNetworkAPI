@@ -9,6 +9,7 @@ Supports VR-split models (vote_remaining routing) and 192-feature snapshots.
 
 import os
 import math
+import hashlib
 import ctypes
 from typing import Any
 
@@ -231,6 +232,18 @@ def _sanitize_float(v: float) -> float | None:
     return v
 
 
+def _model_hash(composition: str) -> str | None:
+    """vr0モデルファイルのmd5先頭8文字を返す。"""
+    path = os.path.join(MODEL_DIR, f"value_model_{composition}_vr0.txt")
+    if not os.path.exists(path):
+        return None
+    h = hashlib.md5()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()[:8]
+
+
 @app.get("/health")
 def health(composition: str = Query(default="12B")):
     vr_models = _load_models(composition)
@@ -240,6 +253,7 @@ def health(composition: str = Query(default="12B")):
         "model_loaded": vr_models is not None,
         "composition": composition,
         "n_vr_models": len(vr_models) if vr_models else 0,
+        "model_hash": _model_hash(composition),
         "error": error,
     }
 
