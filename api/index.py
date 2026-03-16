@@ -233,14 +233,14 @@ def _sanitize_float(v: float) -> float | None:
 
 
 def _model_hash(composition: str) -> str | None:
-    """vr0モデルファイルのmd5先頭8文字を返す。"""
+    """vr0モデルファイルのmd5先頭8文字を返す（CRLF正規化済み）。"""
     path = os.path.join(MODEL_DIR, f"value_model_{composition}_vr0.txt")
     if not os.path.exists(path):
         return None
     h = hashlib.md5()
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(8192), b""):
-            h.update(chunk)
+            h.update(chunk.replace(b"\r\n", b"\n"))
     return h.hexdigest()[:8]
 
 
